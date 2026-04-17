@@ -1,4 +1,4 @@
-﻿# ============================================================================
+﻿﻿# ============================================================================
 #  PicksWay System Restore Script (v2 - 3단 폴백)
 #  역할: 새 컴퓨터에서 대표님 작업환경 + Claude + 브레인 100% 부활
 #  복구 경로 (우선순위):
@@ -204,13 +204,24 @@ if (Test-Path $KeysSrc) {
 
     Write-Host ""
     Write-Host "  🔑 .key AES-256 복호화" -ForegroundColor Cyan
-    Write-Host "  대표님 1Password/메모에 저장된 비밀번호를 입력해주세요:" -ForegroundColor Yellow
-    $securePw = Read-Host "  비밀번호" -AsSecureString
-    $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePw)
-    $plainPw = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
 
+    # 1순위: AUTOW Private repo 의 _secrets/brain_backup_pw.txt (자동)
+    $AutoPwPath = "$AutowDst\_secrets\brain_backup_pw.txt"
     $tempPwFile = "$env:TEMP\_pw_$(Get-Random).tmp"
-    $plainPw | Out-File -FilePath $tempPwFile -Encoding ASCII -NoNewline
+    $usedAuto = $false
+
+    if (Test-Path $AutoPwPath) {
+        Write-Host "  OK  AUTOW Private repo 에서 비번 자동 발견 → 수동 입력 생략" -ForegroundColor Green
+        Copy-Item $AutoPwPath $tempPwFile -Force
+        $usedAuto = $true
+    } else {
+        # 2순위: 수동 입력
+        Write-Host "  AUTOW Private 에 비번 없음 → 1Password/메모에서 수동 입력:" -ForegroundColor Yellow
+        $securePw = Read-Host "  비밀번호" -AsSecureString
+        $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePw)
+        $plainPw = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+        $plainPw | Out-File -FilePath $tempPwFile -Encoding ASCII -NoNewline
+    }
 
     $decryptedZip = "$BackupRoot\keys_decrypted.zip"
     try {
@@ -225,20 +236,15 @@ if (Test-Path $KeysSrc) {
             Write-Host "  ERR 복호화 실패 - 비밀번호를 확인해주세요" -ForegroundColor Red
         }
     } finally {
-        Remove-Item $tempPwFile -Force -ErrorAction SilentlyContinue
-        # 메모리에서 평문 비번 지우기
-        $plainPw = $null
-    }
-
-    # 이후 백업을 위해 비번 파일도 재생성해둘지 묻기
-    $saveLocal = Read-Host "  이 PC에서 계속 자동 백업하려면 비번을 로컬 저장해야 합니다. 저장할까요? (y/N)"
-    if ($saveLocal -eq "y") {
+        # 새 PC에서 자동 백업 재개를 위해 비번 로컬 복사 (동기화 경로 밖)
         $secretDir = "C:\Users\$env:USERNAME\_picksway_secrets"
         if (-not (Test-Path $secretDir)) { New-Item -ItemType Directory -Path $secretDir -Force | Out-Null }
-        $BSTR2 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePw)
-        $pw2 = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR2)
-        $pw2 | Out-File -FilePath "$secretDir\brain_backup_pw.txt" -Encoding ASCII -NoNewline
-        Write-Host "  OK  비번 로컬 저장 (자동 백업 재개 가능)" -ForegroundColor Green
+        if (Test-Path $tempPwFile) {
+            Copy-Item $tempPwFile "$secretDir\brain_backup_pw.txt" -Force
+            Write-Host "  OK  비번 로컬 저장 (자동 백업 재개 가능)" -ForegroundColor Green
+        }
+        Remove-Item $tempPwFile -Force -ErrorAction SilentlyContinue
+        if (-not $usedAuto) { $plainPw = $null }
     }
 } else {
     Write-Host "  SKIP 백업된 키 없음 (평문/암호화 둘 다 부재)" -ForegroundColor Yellow
