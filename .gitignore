@@ -1,0 +1,13 @@
+# 실수로도 포함되면 안 되는 것
+*.key
+*.pem
+*.pfx
+.credentials*
+*.env
+*password*
+*secret*
+_picksway_secrets/
+keys_encrypted*
+logs/
+history/
+*.zip
